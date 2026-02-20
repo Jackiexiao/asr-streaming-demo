@@ -40,4 +40,18 @@ app.post('/api/transcription', requireSession, upload.single('file'), async (req
   }
 })
 
-app.listen(8081, () => console.log('→ http://localhost:8081'))
+// 流式识别：返回 30s 临时 key，客户端直连 Deepgram WebSocket
+app.get('/api/token', async (req, res) => {
+  const r = await fetch('https://api.deepgram.com/v1/auth/grant', {
+    method: 'POST',
+    headers: { 'Authorization': `Token ${process.env.DEEPGRAM_API_KEY}` },
+    body: JSON.stringify({ time_to_live_in_seconds: 30 }),
+  })
+  const data = await r.json()
+  res.json({ key: data.key })
+})
+
+app.listen(8081, () => {
+  console.log('→ http://localhost:8081        (预录音转写)')
+  console.log('→ http://localhost:8081/streaming.html  (流式识别)')
+})

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Deepgram 流式语音识别</title>
+<style>
+  body { font-family: sans-serif; max-width: 700px; margin: 40px auto; padding: 0 20px; }
+  button { padding: 10px 24px; font-size: 16px; cursor: pointer; }
+  #interim { color: #aaa; min-height: 28px; margin-top: 16px; font-style: italic; }
+  #final { margin-top: 8px; line-height: 1.8; }
+  #status { font-size: 13px; color: #666; margin-top: 8px; }
+  a { font-size: 13px; }
+</style>
+</head>
+<body>
+<h2>Deepgram 流式语音识别</h2>
+<p style="color:#888;font-size:13px">
+  架构：浏览器 → <code>GET /api/token</code> 拿 30s 临时 key → 直连 <code>wss://api.deepgram.com/v1/listen</code>
+</p>
+<button id="btn">开始录音</button>
+<p id="status">就绪</p>
+<p id="interim"></p>
+<div id="final"></div>
+<br><a href="/">← 预录音转写 Demo</a>
+
+<script>
+let ws, audioCtx, processor, stream, recording = false
+
+document.getElementById('btn').onclick = () => recording ? stop() : start()
+
+async function start() {
+  setStatus('获取临时 key...')
+
+  const { key } = await fetch('/api/token').then(r => r.json())
+
+  const params = new URLSearchParams({
+    encoding: 'linear16',
+    sample_rate: '16000',
+    language: 'zh-CN',
+    punctuate: 'true',
+    interim_results: 'true',
+    model: 'nova-3',
+  })
+
+  // 临时 key 通过 WebSocket subprotocol 传递，不暴露在 URL 里
+  ws = new WebSocket(`wss://api.deepgram.com/v1/listen?${params}`, ['token', key])
+
+  ws.onopen = async () => {
+    setStatus('已连接，录音中...')
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    audioCtx = new AudioContext({ sampleRate: 16000 })
+    const source = audioCtx.createMediaStreamSource(stream)
+    processor = audioCtx.createScriptProcessor(4096, 1, 1)
+    source.connect(processor)
+    processor.connect(audioCtx.destination)
+    processor.onaudioprocess = (e) => {
+      if (ws.readyState !== WebSocket.OPEN) return
+      const f32 = e.inputBuffer.getChannelData(0)
+      const i16 = new Int16Array(f32.length)
+      for (let i = 0; i < f32.length; i++)
+        i16[i] = Math.max(-32768, Math.min(32767, f32[i] * 32768))
+      ws.send(i16.buffer)
+    }
+  }
+
+  ws.onmessage = (e) => {
+    const d = JSON.parse(e.data)
+    const t = d.channel?.alternatives?.[0]?.transcript
+    if (!t) return
+    if (d.is_final) {
+      document.getElementById('final').textContent += t + ' '
+      document.getElementById('interim').textContent = ''
+    } else {
+      document.getElementById('interim').textContent = t
+    }
+  }
+
+  ws.onerror = () => setStatus('WebSocket 错误')
+  ws.onclose = (e) => setStatus(`连接关闭 (${e.code})`)
+
+  recording = true
+  document.getElementById('btn').textContent = '停止录音'
+}
+
+function stop() {
+  processor?.disconnect()
+  stream?.getTracks().forEach(t => t.stop())
+  audioCtx?.close()
+  ws?.close()
+  recording = false
+  document.getElementById('btn').textContent = '开始录音'
+  setStatus('已停止')
+}
+
+function setStatus(msg) { document.getElementById('status').textContent = msg }
+</script>
+</body>
+</html>
