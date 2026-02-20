@@ -4,6 +4,8 @@ const cors = require('cors')
 const crypto = require('crypto')
 const jwt = require('jsonwebtoken')
 const multer = require('multer')
+const http = require('http')
+const { WebSocketServer, WebSocket } = require('ws')
 const { createClient } = require('@deepgram/sdk')
 
 const app = express()
@@ -40,18 +42,30 @@ app.post('/api/transcription', requireSession, upload.single('file'), async (req
   }
 })
 
-// 流式识别：返回 30s 临时 key，客户端直连 Deepgram WebSocket
-app.get('/api/token', async (req, res) => {
-  const r = await fetch('https://api.deepgram.com/v1/auth/grant', {
-    method: 'POST',
-    headers: { 'Authorization': `Token ${process.env.DEEPGRAM_API_KEY}` },
-    body: JSON.stringify({ time_to_live_in_seconds: 30 }),
+// 流式识别：服务端 WebSocket 代理（API key 不暴露给浏览器）
+const server = http.createServer(app)
+const wss = new WebSocketServer({ server, path: '/stream' })
+
+wss.on('connection', (clientWs, req) => {
+  const { searchParams } = new URL(req.url, 'http://localhost')
+  const params = new URLSearchParams({
+    encoding: 'linear16', sample_rate: '16000',
+    language: searchParams.get('language') || 'zh-CN',
+    model: searchParams.get('model') || 'nova-3',
+    punctuate: 'true', interim_results: 'true',
   })
-  const data = await r.json()
-  res.json({ key: data.key })
+  const dgWs = new WebSocket(`wss://api.deepgram.com/v1/listen?${params}`, {
+    headers: { Authorization: `Token ${process.env.DEEPGRAM_API_KEY}` },
+  })
+  dgWs.on('open', () => clientWs.send(JSON.stringify({ type: 'connected' })))
+  dgWs.on('message', (data) => clientWs.readyState === 1 && clientWs.send(data))
+  dgWs.on('error', (e) => clientWs.send(JSON.stringify({ error: e.message })))
+  dgWs.on('close', () => clientWs.close())
+  clientWs.on('message', (data) => dgWs.readyState === 1 && dgWs.send(data))
+  clientWs.on('close', () => dgWs.close())
 })
 
-app.listen(8081, () => {
-  console.log('→ http://localhost:8081        (预录音转写)')
+server.listen(8081, () => {
+  console.log('→ http://localhost:8081              (预录音转写)')
   console.log('→ http://localhost:8081/streaming.html  (流式识别)')
 })

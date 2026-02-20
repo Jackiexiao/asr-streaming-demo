@@ -15,7 +15,7 @@
 <body>
 <h2>Deepgram 流式语音识别</h2>
 <p style="color:#888;font-size:13px">
-  架构：浏览器 → <code>GET /api/token</code> 拿 30s 临时 key → 直连 <code>wss://api.deepgram.com/v1/listen</code>
+  架构：浏览器 → <code>ws://localhost:8081/stream</code>（本地代理）→ Deepgram（API key 在服务端）
 </p>
 <button id="btn">开始录音</button>
 <p id="status">就绪</p>
@@ -29,42 +29,34 @@ let ws, audioCtx, processor, stream, recording = false
 document.getElementById('btn').onclick = () => recording ? stop() : start()
 
 async function start() {
-  setStatus('获取临时 key...')
+  setStatus('连接中...')
 
-  const { key } = await fetch('/api/token').then(r => r.json())
+  // 连本地代理，API key 不暴露给浏览器
+  ws = new WebSocket('ws://localhost:8081/stream?language=zh-CN&model=nova-3')
 
-  const params = new URLSearchParams({
-    encoding: 'linear16',
-    sample_rate: '16000',
-    language: 'zh-CN',
-    punctuate: 'true',
-    interim_results: 'true',
-    model: 'nova-3',
-  })
+  ws.onopen = () => setStatus('等待服务端连接 Deepgram...')
 
-  // 临时 key 通过 WebSocket subprotocol 传递，不暴露在 URL 里
-  ws = new WebSocket(`wss://api.deepgram.com/v1/listen?${params}`, ['token', key])
-
-  ws.onopen = async () => {
-    setStatus('已连接，录音中...')
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    audioCtx = new AudioContext({ sampleRate: 16000 })
-    const source = audioCtx.createMediaStreamSource(stream)
-    processor = audioCtx.createScriptProcessor(4096, 1, 1)
-    source.connect(processor)
-    processor.connect(audioCtx.destination)
-    processor.onaudioprocess = (e) => {
-      if (ws.readyState !== WebSocket.OPEN) return
-      const f32 = e.inputBuffer.getChannelData(0)
-      const i16 = new Int16Array(f32.length)
-      for (let i = 0; i < f32.length; i++)
-        i16[i] = Math.max(-32768, Math.min(32767, f32[i] * 32768))
-      ws.send(i16.buffer)
-    }
-  }
-
-  ws.onmessage = (e) => {
+  ws.onmessage = async (e) => {
     const d = JSON.parse(e.data)
+    if (d.type === 'connected') {
+      setStatus('已连接，录音中...')
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      audioCtx = new AudioContext({ sampleRate: 16000 })
+      const source = audioCtx.createMediaStreamSource(stream)
+      processor = audioCtx.createScriptProcessor(4096, 1, 1)
+      source.connect(processor)
+      processor.connect(audioCtx.destination)
+      processor.onaudioprocess = (e) => {
+        if (ws.readyState !== WebSocket.OPEN) return
+        const f32 = e.inputBuffer.getChannelData(0)
+        const i16 = new Int16Array(f32.length)
+        for (let i = 0; i < f32.length; i++)
+          i16[i] = Math.max(-32768, Math.min(32767, f32[i] * 32768))
+        ws.send(i16.buffer)
+      }
+      return
+    }
+    if (d.error) return setStatus('错误: ' + d.error)
     const t = d.channel?.alternatives?.[0]?.transcript
     if (!t) return
     if (d.is_final) {
