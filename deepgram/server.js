@@ -47,20 +47,37 @@ const server = http.createServer(app)
 const wss = new WebSocketServer({ server, path: '/stream' })
 
 wss.on('connection', (clientWs, req) => {
+  const apiKey = process.env.DEEPGRAM_API_KEY
+  if (!apiKey) {
+    console.error('[stream] DEEPGRAM_API_KEY not set!')
+    clientWs.send(JSON.stringify({ error: 'DEEPGRAM_API_KEY not set on server' }))
+    clientWs.close()
+    return
+  }
   const { searchParams } = new URL(req.url, 'http://localhost')
   const params = new URLSearchParams({
     encoding: 'linear16', sample_rate: '16000',
     language: searchParams.get('language') || 'zh-CN',
-    model: searchParams.get('model') || 'nova-3',
+    model: searchParams.get('model') || 'nova-2',
     punctuate: 'true', interim_results: 'true',
   })
+  console.log('[stream] connecting to Deepgram...')
   const dgWs = new WebSocket(`wss://api.deepgram.com/v1/listen?${params}`, {
-    headers: { Authorization: `Token ${process.env.DEEPGRAM_API_KEY}` },
+    headers: { Authorization: `Token ${apiKey}` },
   })
-  dgWs.on('open', () => clientWs.send(JSON.stringify({ type: 'connected' })))
+  dgWs.on('open', () => {
+    console.log('[stream] Deepgram connected')
+    clientWs.send(JSON.stringify({ type: 'connected' }))
+  })
   dgWs.on('message', (data) => clientWs.readyState === 1 && clientWs.send(data))
-  dgWs.on('error', (e) => clientWs.send(JSON.stringify({ error: e.message })))
-  dgWs.on('close', () => clientWs.close())
+  dgWs.on('error', (e) => {
+    console.error('[stream] Deepgram error:', e.message)
+    clientWs.readyState === 1 && clientWs.send(JSON.stringify({ error: e.message }))
+  })
+  dgWs.on('close', (code, reason) => {
+    console.log('[stream] Deepgram closed:', code, reason.toString())
+    clientWs.close()
+  })
   clientWs.on('message', (data) => dgWs.readyState === 1 && dgWs.send(data))
   clientWs.on('close', () => dgWs.close())
 })

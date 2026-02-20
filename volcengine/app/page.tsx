@@ -31,7 +31,8 @@ export default function Home() {
     setInterim('')
     setStatus('connecting')
 
-    const ws = new WebSocket(`ws://${location.host}/api/asr-ws`)
+    const wsProtocol = location.protocol === 'https:' ? 'wss' : 'ws'
+    const ws = new WebSocket(`${wsProtocol}://${location.host}/api/asr-ws`)
     wsRef.current = ws
 
     ws.onmessage = async (e) => {
@@ -54,10 +55,22 @@ export default function Home() {
         processor.connect(ctx.destination)
       } else if (msg.type === 'result') {
         const utterances: Utterance[] = msg.data?.result?.utterances ?? []
-        const definite = utterances.filter((u) => u.definite).map((u) => u.text).join('')
-        const current = utterances.find((u) => !u.definite)?.text ?? ''
-        if (definite) setTranscript((t) => t + definite)
-        setInterim(current)
+        if (utterances.length > 0) {
+          const definite = utterances.filter((u) => u.definite).map((u) => u.text).join('')
+          let current = ''
+          for (let i = utterances.length - 1; i >= 0; i--) {
+            if (!utterances[i].definite) {
+              current = utterances[i].text
+              break
+            }
+          }
+          setTranscript(definite)
+          setInterim(current)
+        } else {
+          const resultText: string = msg.data?.result?.text ?? ''
+          setTranscript(resultText)
+          setInterim('')
+        }
       } else if (msg.type === 'error') {
         setError(msg.message)
         setStatus('error')

@@ -1,45 +1,136 @@
-# ASR Streaming Demo
+# Web 端流式语音识别 Demo 合集
 
-多厂商流式语音识别对比，每个厂商是独立的 Next.js App Router 应用。
+> 为什么要建这个仓库？因为我被坑惨了。
 
-## 架构
+## 背景与吐槽
+
+### 为什么不用录音文件识别？
+
+最简单的语音识别方案是录音文件识别：录完音 → 上传 MP3/WAV 到对象存储 → 调 API → 拿结果。但这个方案有个致命问题：**延迟极高**。录音越长，等待越久，用户体验极差。
+
+所以只要你想做实时语音输入，就必须上**流式语音识别**（Streaming ASR）。
+
+### 流式 ASR 的坑
+
+流式 ASR 比文件识别复杂得多：
+
+1. **需要 WebSocket**：不是一次 HTTP 请求，而是持久连接，边说边传边出结果
+2. **鉴权麻烦**：API Key 不能暴露在前端，需要服务端签名/换取临时凭证，再让客户端直连厂商 WebSocket
+3. **音频格式有要求**：通常需要 PCM 16kHz 16bit，浏览器 `AudioContext` 采集到的 Float32 需要手动转换
+4. **各家协议不统一**：消息格式、事件名、鉴权方式全都不一样，文档写得一言难尽
+
+### 国内厂商文档有多烂？
+
+说真的，阿里云、火山引擎这些厂商的流式 ASR 文档写得相当糟糕——示例代码不完整、关键参数藏在犄角旮旯、错误信息毫无提示。
+
+把文档一股脑丢给 Claude/GPT，大概率还是会出 bug，因为文档本身就有坑。
+
+### 为什么不用浏览器原生语音识别？
+
+浏览器自带 `webkitSpeechRecognition` / `SpeechRecognition`，看起来最省事，但问题很多：
+
+- **Chrome**：音频直接发给 Google 服务器，你无法控制用哪家 ASR，中文效果也一般
+- **Firefox**：完全不支持
+- **Safari**：支持，但功能残缺，interim result 行为不一致
+- **无法定制**：不能换模型、加热词、调参数，识别结果拿到就是拿到，出错了你也没辙
+- **隐私问题**：音频数据流向浏览器厂商服务器，ToB 场景基本不可接受
+
+所以只要对准确率、延迟、可控性有要求，就得自己接 ASR API。`chrome-safari-asr/` 目录里有个原生方案的 demo，仅供对比参考。
+
+### Deepgram 的体验对比
+
+用完国内厂商再去用 [Deepgram](https://deepgram.com)，真的是降维打击。它的 onboarding 会先问你：你是技术人员还是非技术人员？你想先体验什么？然后一步步引导你跑通 demo。整个接入体验流畅到离谱。
+
+这个仓库的目的就是：**把我踩过的坑整理成可以直接跑的 demo，让后来的开发者少受点罪。**
+
+---
+
+## 已跑通的方案
+
+| 目录 | 厂商 | 鉴权方式 | 状态 |
+|------|------|---------|------|
+| `deepgram/` | [Deepgram](https://console.deepgram.com) | 服务端换临时 key（30s），客户端直连 | ✅ |
+| `aliyun/` | [阿里云 NLS](https://nls-portal.console.aliyun.com) | 服务端 HMAC-SHA1 换 NLS Token（24h），客户端直连 | ✅ |
+| `volcengine/` | [火山引擎](https://console.volcengine.com/speech) | 服务端代理 WebSocket（双向转发） | ✅ |
+
+---
+
+## 架构说明
+
+大多数方案的架构：
 
 ```
-浏览器 → /api/token（Next.js Route Handler，密钥在服务端）→ 获取临时凭证
-浏览器 → 直连厂商 WebSocket（用临时凭证）
+浏览器麦克风
+    ↓ PCM 音频流
+浏览器 WebSocket → 厂商 WebSocket（用临时凭证直连）
+                        ↓
+                   实时识别结果 → 浏览器展示
+
+服务端 /api/token（只负责签名/换凭证，不转发音频）
 ```
 
-## 目录
+火山引擎因为鉴权复杂，采用服务端代理：
 
-| 目录 | 厂商 | 申请地址 |
-|------|------|---------|
-| `deepgram/` | Deepgram | https://console.deepgram.com |
-| `aliyun/` | 阿里云 NLS | https://nls-portal.console.aliyun.com |
-| `xunfei/` | 讯飞实时语音转写 | https://console.xfyun.cn/services/rtasr |
+```
+浏览器 WebSocket → 本地 server.js → 火山引擎 WebSocket
+```
+
+---
 
 ## 快速开始
 
 ```bash
-cd deepgram          # 或 aliyun / xunfei
+cd deepgram          # 或 aliyun / volcengine
 cp .env.example .env.local
-# 填入对应的 API Key
+# 填入对应的 API Key（见下方）
 npm install
 npm run dev          # http://localhost:3000
 ```
 
-## 各厂商所需参数
+### 各厂商所需环境变量
 
-**Deepgram** — `deepgram/.env.example`
-- `DEEPGRAM_API_KEY`
+**Deepgram**
+```
+DEEPGRAM_API_KEY=
+```
 
-**阿里云** — `aliyun/.env.example`
-- `ALIYUN_ACCESS_KEY_ID` / `ALIYUN_ACCESS_KEY_SECRET` / `ALIYUN_APP_KEY`
+**阿里云 NLS**
+```
+ALIYUN_ACCESS_KEY_ID=
+ALIYUN_ACCESS_KEY_SECRET=
+ALIYUN_APP_KEY=
+```
 
-**讯飞** — `xunfei/.env.example`
-- `XUNFEI_APP_ID` / `XUNFEI_API_KEY`
+**火山引擎**
+```
+VOLCENGINE_APP_ID=
+VOLCENGINE_ACCESS_TOKEN=
+```
 
-## 临时凭证机制
+---
 
-- **Deepgram**：`/api/token` 调用 `/v1/auth/grant` 生成 30s 临时 key，客户端用 WebSocket subprotocol 传递
-- **阿里云**：`/api/token` 用 AccessKey HMAC-SHA1 签名换取 NLS Token（24h 有效），客户端用 token 连接
-- **讯飞**：`/api/token` 用 HMAC-SHA256 对 `appId+timestamp` 签名，返回带签名的 WebSocket URL
+## 关键实现细节
+
+**浏览器音频采集 → PCM 转换**（各方案通用）
+
+```js
+const ctx = new AudioContext({ sampleRate: 16000 })
+const processor = ctx.createScriptProcessor(4096, 1, 1)
+processor.onaudioprocess = (ev) => {
+  const f32 = ev.inputBuffer.getChannelData(0)
+  const i16 = new Int16Array(f32.length)
+  for (let i = 0; i < f32.length; i++)
+    i16[i] = Math.max(-32768, Math.min(32767, f32[i] * 32768))
+  ws.send(i16.buffer)  // 发送 PCM 16bit
+}
+```
+
+---
+
+## 另外对比一下编程能力
+
+至少在这个场景中 opus4.6 生成的bug 很多， 反倒是 gpt codex 5.3 效果最好
+
+## License
+
+MIT

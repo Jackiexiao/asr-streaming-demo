@@ -3,18 +3,16 @@ const { parse } = require('url')
 const next = require('next')
 const { WebSocketServer, WebSocket } = require('ws')
 const crypto = require('crypto')
+const {
+  MESSAGE_TYPES,
+  buildClientMessage,
+  parseServerMessage,
+} = require('./lib/volc-protocol')
 
 const dev = process.env.NODE_ENV !== 'production'
 const server = createServer()
 const app = next({ dev, httpServer: server })
 const handle = app.getRequestHandler()
-
-function buildMsg(type, payload, serialization) {
-  const header = Buffer.from([0x11, type, serialization, 0x00])
-  const size = Buffer.alloc(4)
-  size.writeUInt32BE(payload.length)
-  return Buffer.concat([header, size, payload])
-}
 
 app.prepare().then(() => {
   server.on('request', async (req, res) => {
@@ -32,10 +30,18 @@ app.prepare().then(() => {
 
   wss.on('connection', (clientWs) => {
     console.log('[ASR] Client connected')
+    const appId = process.env.VOLCENGINE_APP_ID
+    const accessToken = process.env.VOLCENGINE_ACCESS_TOKEN
+    if (!appId || !accessToken) {
+      clientWs.send(JSON.stringify({ type: 'error', message: 'Missing VOLCENGINE_APP_ID or VOLCENGINE_ACCESS_TOKEN' }))
+      clientWs.close()
+      return
+    }
+
     const volcWs = new WebSocket('wss://openspeech.bytedance.com/api/v3/sauc/bigmodel', {
       headers: {
-        'X-Api-App-Key': process.env.VOLCENGINE_APP_ID,
-        'X-Api-Access-Key': process.env.VOLCENGINE_ACCESS_TOKEN,
+        'X-Api-App-Key': appId,
+        'X-Api-Access-Key': accessToken,
         'X-Api-Resource-Id': process.env.VOLCENGINE_RESOURCE_ID || 'volc.bigasr.sauc.duration',
         'X-Api-Connect-Id': crypto.randomUUID(),
       },
@@ -45,9 +51,15 @@ app.prepare().then(() => {
       console.log('[Volcengine] Connected, sending config')
       const config = {
         audio: { format: 'pcm', rate: 16000, bits: 16, channel: 1 },
-        request: { model_name: 'bigmodel', enable_itn: true, enable_punc: true },
+        request: { model_name: 'bigmodel', enable_itn: true, enable_punc: true, show_utterances: true },
       }
-      volcWs.send(buildMsg(0x10, Buffer.from(JSON.stringify(config)), 0x10))
+      volcWs.send(buildClientMessage({
+        messageType: MESSAGE_TYPES.FULL_CLIENT_REQUEST,
+        messageFlags: 0x0,
+        serialization: 0x1,
+        compression: 0x0,
+        payload: Buffer.from(JSON.stringify(config)),
+      }))
       clientWs.send(JSON.stringify({ type: 'connected' }))
     })
 
@@ -56,28 +68,44 @@ app.prepare().then(() => {
         try {
           if (JSON.parse(data).type === 'end') {
             console.log('[ASR] Sending last audio packet')
-            volcWs.send(buildMsg(0x22, Buffer.alloc(0), 0x00))
+            volcWs.send(buildClientMessage({
+              messageType: MESSAGE_TYPES.AUDIO_ONLY_CLIENT_REQUEST,
+              messageFlags: 0x2,
+              serialization: 0x0,
+              compression: 0x0,
+              payload: Buffer.alloc(0),
+            }))
           }
         } catch (e) { console.error('[ASR] Control msg error:', e.message) }
         return
       }
       if (volcWs.readyState === WebSocket.OPEN) {
-        volcWs.send(buildMsg(0x20, Buffer.from(data), 0x00))
+        volcWs.send(buildClientMessage({
+          messageType: MESSAGE_TYPES.AUDIO_ONLY_CLIENT_REQUEST,
+          messageFlags: 0x0,
+          serialization: 0x0,
+          compression: 0x0,
+          payload: Buffer.from(data),
+        }))
       }
     })
 
     volcWs.on('message', (data) => {
       try {
-        const buf = Buffer.isBuffer(data) ? data : Buffer.from(data)
-        console.log('[Volcengine] Response header:', buf.slice(0, 4).toString('hex'))
-        const headerSize = (buf[0] & 0x0f) * 4
-        const payloadSize = buf.readUInt32BE(headerSize)
-        const payload = buf.slice(headerSize + 4, headerSize + 4 + payloadSize)
-        const json = JSON.parse(payload.toString())
-        console.log('[Volcengine] Result:', JSON.stringify(json))
-        clientWs.send(JSON.stringify({ type: 'result', data: json }))
+        const parsed = parseServerMessage(data)
+
+        if (parsed.messageType === MESSAGE_TYPES.SERVER_ERROR_RESPONSE) {
+          console.error('[Volcengine] Server error:', parsed.errorCode, parsed.errorMessage)
+          clientWs.send(JSON.stringify({
+            type: 'error',
+            message: parsed.errorMessage || `ASR error: ${parsed.errorCode}`,
+          }))
+          return
+        }
+
+        clientWs.send(JSON.stringify({ type: 'result', data: parsed.json ?? {} }))
       } catch (e) {
-        console.error('[Volcengine] Parse error:', e.message, 'raw:', Buffer.isBuffer(data) ? data.slice(0, 20).toString('hex') : data)
+        console.error('[Volcengine] Parse error:', e.message)
       }
     })
 
