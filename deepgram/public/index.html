@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Deepgram 语音转写</title>
+<style>
+  body { font-family: sans-serif; max-width: 700px; margin: 40px auto; padding: 0 20px; }
+  input, select, button { font-size: 15px; padding: 8px 12px; margin: 4px 0; }
+  input[type=text] { width: 100%; box-sizing: border-box; }
+  #result { margin-top: 20px; line-height: 1.8; white-space: pre-wrap; background: #f5f5f5; padding: 16px; border-radius: 6px; min-height: 60px; }
+  #status { color: #888; font-size: 13px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<h2>Deepgram 预录音转写 Demo</h2>
+<p style="color:#888;font-size:13px">架构：浏览器 → GET /api/session 拿 JWT → POST /api/transcription（Bearer JWT）→ Deepgram</p>
+
+<label>音频 URL</label>
+<input id="url" type="text" value="https://static.deepgram.com/examples/Bueller-Life-moves-pretty-fast.wav">
+
+<label>或上传文件</label>
+<input id="file" type="file" accept="audio/*,video/*">
+
+<br>
+<label>模型</label>
+<select id="model">
+  <option value="nova-3">nova-3（最新）</option>
+  <option value="nova-2">nova-2</option>
+  <option value="base">base</option>
+</select>
+
+<br><br>
+<button id="btn">开始转写</button>
+<div id="status"></div>
+<div id="result">结果将显示在这里...</div>
+
+<script>
+const API = 'http://localhost:8081'
+let token = null
+
+async function getToken() {
+  if (token) return token
+  const { token: t } = await fetch(`${API}/api/session`).then(r => r.json())
+  token = t
+  return token
+}
+
+document.getElementById('btn').onclick = async () => {
+  const status = document.getElementById('status')
+  const result = document.getElementById('result')
+  status.textContent = '获取 session token...'
+  result.textContent = ''
+
+  try {
+    const jwt = await getToken()
+    const file = document.getElementById('file').files[0]
+    const url = document.getElementById('url').value.trim()
+    const model = document.getElementById('model').value
+
+    const body = new FormData()
+    body.append('model', model)
+    if (file) body.append('file', file)
+    else body.append('url', url)
+
+    status.textContent = '转写中...'
+    const res = await fetch(`${API}/api/transcription`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${jwt}` },
+      body,
+    })
+    const data = await res.json()
+    if (data.error) throw new Error(data.error)
+    result.textContent = data.transcript
+    status.textContent = `完成，共 ${data.words.length} 个词`
+  } catch (e) {
+    status.textContent = '错误: ' + e.message
+    token = null // token 可能过期，下次重新获取
+  }
+}
+</script>
+</body>
+</html>

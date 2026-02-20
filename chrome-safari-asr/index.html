@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>语音识别测试</title>
+<style>
+  body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; }
+  #output { min-height: 100px; border: 1px solid #ccc; padding: 12px; border-radius: 8px; margin: 16px 0; font-size: 16px; white-space: pre-wrap; }
+  #interim { color: #999; }
+  button { padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; cursor: pointer; margin-right: 8px; }
+  #startBtn { background: #4CAF50; color: white; }
+  #stopBtn { background: #f44336; color: white; }
+  #status { color: #666; font-size: 14px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<h2>Web Speech API 测试</h2>
+<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:14px;color:#856404;">
+  ⚠️ 需通过 HTTP 服务器访问，直接打开文件会报 <code>not-allowed</code> 错误。<br>
+  运行：<code>python3 -m http.server 8080</code>，然后访问 <code>http://localhost:8080</code>
+</div>
+<button id="startBtn">开始录音</button>
+<button id="stopBtn" disabled>停止</button>
+<div id="status">就绪</div>
+<div id="output"><span id="final"></span><span id="interim"></span></div>
+<button onclick="document.getElementById('final').textContent='';document.getElementById('interim').textContent=''">清空</button>
+
+<script>
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (!SpeechRecognition) {
+  document.getElementById('status').textContent = '❌ 浏览器不支持 Web Speech API';
+} else {
+  const rec = new SpeechRecognition();
+  rec.lang = 'zh-CN';
+  rec.continuous = true;
+  rec.interimResults = true;
+
+  rec.onstart = () => {
+    document.getElementById('status').textContent = '🎙️ 录音中...';
+    document.getElementById('startBtn').disabled = true;
+    document.getElementById('stopBtn').disabled = false;
+  };
+  rec.onend = () => {
+    document.getElementById('status').textContent = '⏹️ 已停止';
+    document.getElementById('startBtn').disabled = false;
+    document.getElementById('stopBtn').disabled = true;
+  };
+  rec.onerror = e => {
+    document.getElementById('status').textContent = '❌ 错误: ' + e.error;
+    document.getElementById('startBtn').disabled = false;
+    document.getElementById('stopBtn').disabled = true;
+  };
+  rec.onresult = e => {
+    let final = '', interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      e.results[i].isFinal ? final += e.results[i][0].transcript : interim += e.results[i][0].transcript;
+    }
+    if (final) document.getElementById('final').textContent += final;
+    document.getElementById('interim').textContent = interim;
+  };
+
+  document.getElementById('startBtn').onclick = () => rec.start();
+  document.getElementById('stopBtn').onclick = () => rec.stop();
+}
+</script>
+</body>
+</html>
