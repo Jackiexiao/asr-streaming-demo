@@ -1,36 +1,41 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 阿里云 NLS Web 流式识别 Demo
 
-## Getting Started
+这个 demo 已整合 `Recorder.js + ASR_Aliyun_Short` 的可跑通方案，流程为：
 
-First, run the development server:
+1. 前端加载 `public/recorder` 下的 Recorder.js 脚本。
+2. 前端请求 `/api/token` 获取 `appkey + token`。
+3. Recorder.js 直接通过 WebSocket 连接阿里云一句话识别服务。
+4. 页面支持实时识别、停止后的最终结果、以及“最后一段录音文件转文字”。
+
+## 启动
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
+cp .env.example .env.local
+pnpm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+打开 `http://localhost:3000`。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 环境变量
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+必填：
 
-## Learn More
+```bash
+ALIYUN_ACCESS_KEY_ID=
+ALIYUN_ACCESS_KEY_SECRET=
+ALIYUN_APP_KEY=
+```
 
-To learn more about Next.js, take a look at the following resources:
+可选（多语言 AppKey 映射）：
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+ALIYUN_APP_KEYS_JSON={"普通话":"xxx","英语":"yyy","粤语":"zzz"}
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+当 `ALIYUN_APP_KEYS_JSON` 配置了对应语言时，会优先按 `lang` 取 AppKey；否则回退到 `ALIYUN_APP_KEY`。
 
-## Deploy on Vercel
+## 参考来源
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `https://github.com/Jackiexiao/recoderjs_aliyun_asr_demo`
+- 该仓库内的 `src/extensions/asr.aliyun.short.js` 及 Recorder.js 相关脚本已放入 `public/recorder/`。
