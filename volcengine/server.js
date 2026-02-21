@@ -102,6 +102,10 @@ function mapHttpError(error) {
   return { statusCode: 500, message: error?.message || 'Internal server error' }
 }
 
+function now() {
+  return Date.now()
+}
+
 app.prepare().then(() => {
   server.on('request', async (req, res) => {
     const parsedUrl = parse(req.url, true)
@@ -149,7 +153,9 @@ app.prepare().then(() => {
         }
 
         if (pathname === '/api/file-asr/recognize') {
+          const startedAt = now()
           const run = await client.runTask(body)
+          const finishedAt = now()
           sendJson(res, 200, {
             ok: true,
             mode: 'recognize',
@@ -164,20 +170,28 @@ app.prepare().then(() => {
             },
             history: run.history,
             submit: run.submit,
+            timings: {
+              recognizeMs: finishedAt - startedAt,
+              totalMs: finishedAt - startedAt,
+            },
           })
           return
         }
 
         if (pathname === '/api/file-asr/upload-and-recognize') {
+          const startedAt = now()
           const maxUploadBytes = Number.parseInt(process.env.FILE_ASR_MAX_UPLOAD_BYTES || '', 10) || DEFAULT_MAX_UPLOAD_BYTES
           const parsedUpload = parseUploadPayload(body, { maxBytes: maxUploadBytes })
           const storageClient = createStorageClient()
+          const uploadStartedAt = now()
           const upload = await storageClient.uploadAudioBuffer({
             buffer: parsedUpload.buffer,
             fileName: parsedUpload.fileName,
             contentType: parsedUpload.contentType,
           })
+          const uploadFinishedAt = now()
 
+          const recognizeStartedAt = now()
           const run = await client.runTask({
             audioUrl: upload.url,
             audioFormat: parsedUpload.audioFormat,
@@ -187,6 +201,7 @@ app.prepare().then(() => {
             pollIntervalMs: body.pollIntervalMs,
             timeoutMs: body.timeoutMs,
           })
+          const recognizeFinishedAt = now()
 
           sendJson(res, 200, {
             ok: true,
@@ -209,6 +224,12 @@ app.prepare().then(() => {
             },
             history: run.history,
             submit: run.submit,
+            timings: {
+              prepareMs: uploadStartedAt - startedAt,
+              uploadMs: uploadFinishedAt - uploadStartedAt,
+              recognizeMs: recognizeFinishedAt - recognizeStartedAt,
+              totalMs: recognizeFinishedAt - startedAt,
+            },
           })
           return
         }

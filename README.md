@@ -50,7 +50,9 @@
 | 目录 | 厂商 | 鉴权方式 | 状态 |
 |------|------|---------|------|
 | `deepgram/` | [Deepgram](https://console.deepgram.com) | 服务端换临时 key（30s），客户端直连 | ✅ |
-| `aliyun/` | [阿里云 NLS](https://nls-portal.console.aliyun.com) | 服务端 HMAC-SHA1 换 NLS Token（24h），客户端直连 | ✅ |
+| `aliyun/` | [阿里云 NLS](https://nls-portal.console.aliyun.com) | 服务端手写签名换 NLS Token（24h），客户端直连 | ✅（可用） |
+| `aliyun-asr-codeex/` | [阿里云 NLS](https://nls-portal.console.aliyun.com) | 服务端 SDK CreateToken + Token 复用，客户端直连 | ✅（推荐） |
+| `aliyun-bailian/` | [阿里云百炼](https://dashscope.console.aliyun.com) | 服务端 WebSocket 代理（DashScope Realtime） | ✅（不同产品线） |
 | `volcengine/` | [火山引擎](https://console.volcengine.com/speech) | 服务端代理 WebSocket（双向转发） | ✅ |
 
 ---
@@ -96,12 +98,21 @@
 ## 快速开始
 
 ```bash
-cd deepgram          # 或 aliyun / volcengine
+cd deepgram          # 或 aliyun / aliyun-asr-codeex / aliyun-bailian / volcengine
 cp .env.example .env.local
 # 填入对应的 API Key（见下方）
-npm install
-npm run dev          # http://localhost:3000
+pnpm install
+pnpm run dev         # http://localhost:3000
 ```
+
+### 阿里云 NLS 最佳实践对齐说明
+
+根据阿里云文档《移动端应用使用 Token 或 STS 安全访问智能语音交互服务》：
+
+- 实时/一句话识别：推荐 **服务端创建 Token，下发给客户端，客户端直连阿里云 WebSocket**
+- 录音文件离线识别：推荐 **STS 临时凭证**（不是实时流式场景）
+
+本仓库里如果你要做 NLS 实时流式识别，优先使用 `aliyun-asr-codeex/`。
 
 ### 各厂商所需环境变量
 
