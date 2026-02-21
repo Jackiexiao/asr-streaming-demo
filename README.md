@@ -75,6 +75,15 @@
 浏览器 WebSocket → 本地 server.js → 火山引擎 WebSocket
 ```
 
+### 火山引擎参考文档
+
+火山引擎这套 demo 主要参考下面两篇官方文档：
+
+- [鉴权方法（豆包语音）](https://www.volcengine.com/docs/6561/107789?lang=zh)：说明签名和鉴权参数，`volcengine/server.js` 按这个流程做请求签名。
+- [大模型流式语音识别 API（豆包语音）](https://www.volcengine.com/docs/6561/1354869?lang=zh)：定义 WebSocket 接口和消息协议，`volcengine/lib/volc-protocol.js` 按这个协议封包/解包。
+
+> 文档可能迭代，若遇到字段或错误码变动，请以火山引擎官方文档为准。
+
 ---
 
 ## 快速开始
@@ -105,6 +114,9 @@ ALIYUN_APP_KEY=
 ```
 VOLCENGINE_APP_ID=
 VOLCENGINE_ACCESS_TOKEN=
+VOLCENGINE_RESOURCE_ID=volc.bigasr.sauc.duration
+# 小时版：volc.seedasr.sauc.duration
+# 并发版：volc.seedasr.sauc.concurrent
 ```
 
 ---

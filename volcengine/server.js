@@ -8,6 +8,10 @@ const {
   buildClientMessage,
   parseServerMessage,
 } = require('./lib/volc-protocol')
+const {
+  parseDemoParams,
+  buildRequestConfig,
+} = require('./lib/asr-config')
 
 const dev = process.env.NODE_ENV !== 'production'
 const server = createServer()
@@ -23,13 +27,15 @@ app.prepare().then(() => {
 
   server.on('upgrade', (req, socket, head) => {
     if (parse(req.url).pathname === '/api/asr-ws') {
-      wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws))
+      wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req))
     }
     // Next.js handles HMR upgrades via its own listener (added via httpServer option)
   })
 
-  wss.on('connection', (clientWs) => {
+  wss.on('connection', (clientWs, req) => {
     console.log('[ASR] Client connected')
+    const demoParams = parseDemoParams(parse(req.url, true).query)
+    console.log('[ASR] Demo params:', demoParams)
     const appId = process.env.VOLCENGINE_APP_ID
     const accessToken = process.env.VOLCENGINE_ACCESS_TOKEN
     if (!appId || !accessToken) {
@@ -49,10 +55,7 @@ app.prepare().then(() => {
 
     volcWs.on('open', () => {
       console.log('[Volcengine] Connected, sending config')
-      const config = {
-        audio: { format: 'pcm', rate: 16000, bits: 16, channel: 1 },
-        request: { model_name: 'bigmodel', enable_itn: true, enable_punc: true, show_utterances: true },
-      }
+      const config = buildRequestConfig(demoParams)
       volcWs.send(buildClientMessage({
         messageType: MESSAGE_TYPES.FULL_CLIENT_REQUEST,
         messageFlags: 0x0,

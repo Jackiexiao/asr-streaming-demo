@@ -1,88 +1,196 @@
-require('dotenv').config()
-const express = require('express')
-const cors = require('cors')
-const crypto = require('crypto')
-const jwt = require('jsonwebtoken')
-const multer = require('multer')
-const http = require('http')
-const { WebSocketServer, WebSocket } = require('ws')
-const { createClient } = require('@deepgram/sdk')
+const http = require("node:http")
+const { parse } = require("node:url")
 
-const app = express()
-const upload = multer({ storage: multer.memoryStorage() })
-const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex')
-const deepgram = createClient(process.env.DEEPGRAM_API_KEY)
+const next = require("next")
+const { WebSocketServer, WebSocket } = require("ws")
+const { normalizeCloseCode, resolveStreamingModel } = require("./lib/streaming")
 
-app.use(cors())
-app.use(express.static('public'))
+const dev = process.env.NODE_ENV !== "production"
+const hostname = process.env.HOST || "localhost"
+const port = Number(process.env.PORT || 3000)
 
-// Step 1: 客户端先拿 JWT session token
-app.get('/api/session', (req, res) => {
-  res.json({ token: jwt.sign({}, SESSION_SECRET, { expiresIn: '1h' }) })
-})
+const app = next({ dev, hostname, port })
+const handle = app.getRequestHandler()
 
-function requireSession(req, res, next) {
-  const auth = req.headers.authorization
-  if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'Missing token' })
-  try { jwt.verify(auth.slice(7), SESSION_SECRET); next() }
-  catch { res.status(401).json({ error: 'Invalid token' }) }
+function createDeepgramWsUrl(req) {
+  const requestUrl = new URL(req.url || "/api/stream", `http://${req.headers.host || `${hostname}:${port}`}`)
+  const requestedModel = requestUrl.searchParams.get("model") || "nova-2"
+  const language = requestUrl.searchParams.get("language") || "zh-CN"
+  const model = resolveStreamingModel({ model: requestedModel, language })
+
+  const params = new URLSearchParams({
+    encoding: "linear16",
+    sample_rate: "16000",
+    channels: "1",
+    punctuate: "true",
+    smart_format: "true",
+    interim_results: "true",
+    endpointing: "300",
+    model,
+    language,
+  })
+
+  return {
+    url: `wss://api.deepgram.com/v1/listen?${params.toString()}`,
+    requestedModel,
+    model,
+    language,
+  }
 }
 
-// Step 2: 用 JWT 调用转写接口（文件上传 or URL）
-app.post('/api/transcription', requireSession, upload.single('file'), async (req, res) => {
+function sendClientError(ws, message) {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ error: message }))
+  }
+}
+
+function formatDeepgramHandshakeError(statusCode, body) {
+  if (!body) {
+    return `Deepgram 握手失败（HTTP ${statusCode}）`
+  }
+
   try {
-    const { url, model = 'nova-3' } = req.body
-    const result = url
-      ? await deepgram.listen.prerecorded.transcribeUrl({ url }, { model })
-      : await deepgram.listen.prerecorded.transcribeFile(req.file.buffer, { model, mimetype: req.file.mimetype })
-    const alt = result.result?.results?.channels?.[0]?.alternatives?.[0]
-    res.json({ transcript: alt?.transcript || '', words: alt?.words || [] })
-  } catch (e) {
-    res.status(500).json({ error: e.message })
+    const payload = JSON.parse(body)
+    const reason = payload.err_msg || payload.error || body
+    return `Deepgram 握手失败（HTTP ${statusCode}）：${reason}`
+  } catch {
+    return `Deepgram 握手失败（HTTP ${statusCode}）：${body}`
   }
-})
+}
 
-// 流式识别：服务端 WebSocket 代理（API key 不暴露给浏览器）
-const server = http.createServer(app)
-const wss = new WebSocketServer({ server, path: '/stream' })
+app
+  .prepare()
+  .then(() => {
+    const server = http.createServer((req, res) => {
+      const parsedUrl = parse(req.url || "", true)
+      handle(req, res, parsedUrl)
+    })
 
-wss.on('connection', (clientWs, req) => {
-  const apiKey = process.env.DEEPGRAM_API_KEY
-  if (!apiKey) {
-    console.error('[stream] DEEPGRAM_API_KEY not set!')
-    clientWs.send(JSON.stringify({ error: 'DEEPGRAM_API_KEY not set on server' }))
-    clientWs.close()
-    return
-  }
-  const { searchParams } = new URL(req.url, 'http://localhost')
-  const params = new URLSearchParams({
-    encoding: 'linear16', sample_rate: '16000',
-    language: searchParams.get('language') || 'zh-CN',
-    model: searchParams.get('model') || 'nova-2',
-    punctuate: 'true', interim_results: 'true',
-  })
-  console.log('[stream] connecting to Deepgram...')
-  const dgWs = new WebSocket(`wss://api.deepgram.com/v1/listen?${params}`, {
-    headers: { Authorization: `Token ${apiKey}` },
-  })
-  dgWs.on('open', () => {
-    console.log('[stream] Deepgram connected')
-    clientWs.send(JSON.stringify({ type: 'connected' }))
-  })
-  dgWs.on('message', (data) => clientWs.readyState === 1 && clientWs.send(data))
-  dgWs.on('error', (e) => {
-    console.error('[stream] Deepgram error:', e.message)
-    clientWs.readyState === 1 && clientWs.send(JSON.stringify({ error: e.message }))
-  })
-  dgWs.on('close', (code, reason) => {
-    console.log('[stream] Deepgram closed:', code, reason.toString())
-    clientWs.close()
-  })
-  clientWs.on('message', (data) => dgWs.readyState === 1 && dgWs.send(data))
-  clientWs.on('close', () => dgWs.close())
-})
+    const wss = new WebSocketServer({ noServer: true })
 
-server.listen(8081, () => {
-  console.log('→ http://localhost:8081              (预录音转写)')
-  console.log('→ http://localhost:8081/streaming.html  (流式识别)')
-})
+    server.on("upgrade", (req, socket, head) => {
+      const { pathname } = new URL(req.url || "/", `http://${req.headers.host || `${hostname}:${port}`}`)
+
+      if (pathname !== "/api/stream") {
+        socket.destroy()
+        return
+      }
+
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit("connection", ws, req)
+      })
+    })
+
+    wss.on("connection", (clientWs, req) => {
+      const apiKey = process.env.DEEPGRAM_API_KEY
+
+      if (!apiKey) {
+        sendClientError(clientWs, "服务端未配置 DEEPGRAM_API_KEY")
+        clientWs.close(1011)
+        return
+      }
+
+      const streamConfig = createDeepgramWsUrl(req)
+      const dgWs = new WebSocket(streamConfig.url, {
+        headers: {
+          Authorization: `Token ${apiKey}`,
+        },
+      })
+
+      const keepAliveTimer = setInterval(() => {
+        if (dgWs.readyState === WebSocket.OPEN) {
+          dgWs.send(JSON.stringify({ type: "KeepAlive" }))
+        }
+      }, 8000)
+
+      dgWs.on("open", () => {
+        if (clientWs.readyState === WebSocket.OPEN) {
+          clientWs.send(
+            JSON.stringify({
+              type: "connected",
+              model: streamConfig.model,
+              language: streamConfig.language,
+              fallback:
+                streamConfig.requestedModel === streamConfig.model
+                  ? null
+                  : {
+                      requested: streamConfig.requestedModel,
+                      effective: streamConfig.model,
+                    },
+            }),
+          )
+        }
+      })
+
+      dgWs.on("message", (payload, isBinary) => {
+        if (clientWs.readyState === WebSocket.OPEN) {
+          clientWs.send(payload, { binary: isBinary })
+        }
+      })
+
+      dgWs.on("error", (error) => {
+        sendClientError(clientWs, error.message || "Deepgram 连接失败")
+      })
+
+      dgWs.on("unexpected-response", (_request, response) => {
+        let body = ""
+        response.on("data", (chunk) => {
+          body += chunk.toString()
+        })
+        response.on("end", () => {
+          const message = formatDeepgramHandshakeError(response.statusCode || 400, body)
+          sendClientError(clientWs, message)
+          if (clientWs.readyState === WebSocket.OPEN) {
+            clientWs.close(1011)
+          }
+        })
+      })
+
+      dgWs.on("close", (code, reason) => {
+        clearInterval(keepAliveTimer)
+        if (clientWs.readyState === WebSocket.OPEN) {
+          const safeCode = normalizeCloseCode(code, 1011)
+          const closeReason = reason ? reason.toString().slice(0, 80) : undefined
+          clientWs.close(safeCode, closeReason)
+        }
+      })
+
+      clientWs.on("message", (payload, isBinary) => {
+        if (dgWs.readyState !== WebSocket.OPEN) {
+          return
+        }
+
+        if (isBinary || Buffer.isBuffer(payload)) {
+          dgWs.send(payload, { binary: true })
+          return
+        }
+
+        dgWs.send(payload.toString())
+      })
+
+      clientWs.on("close", () => {
+        clearInterval(keepAliveTimer)
+
+        if (dgWs.readyState === WebSocket.OPEN) {
+          dgWs.send(JSON.stringify({ type: "CloseStream" }))
+        }
+
+        dgWs.close()
+      })
+
+      clientWs.on("error", () => {
+        clearInterval(keepAliveTimer)
+        dgWs.close()
+      })
+    })
+
+    server.listen(port, () => {
+      console.log(`> Ready on http://${hostname}:${port}`)
+      console.log(`> File transcription: http://${hostname}:${port}`)
+      console.log(`> Streaming demo: http://${hostname}:${port}/streaming`)
+    })
+  })
+  .catch((error) => {
+    console.error("Failed to start server", error)
+    process.exit(1)
+  })
