@@ -24,7 +24,7 @@
 1. 服务端通过阿里云 SDK 调 `CreateToken`（官方推荐路径）
 2. 服务端内存缓存 Token，默认提前 2 小时刷新
 3. 前端仅拿短期 Token，音频不经服务端 WS 代理
-4. 兼容两套 AK/SK 环境变量命名（`ALIYUN_ACCESS_KEY_*` 与 `ALIYUN_ACCESSKEY_*`）
+4. AK/SK 环境变量统一使用新命名（`ALIYUN_ACCESS_KEY_ID` / `ALIYUN_ACCESS_KEY_SECRET`）
 
 ## 本次建议
 

@@ -71,7 +71,7 @@ async function handler(req: Request) {
   const appKey = resolveAppKey(langMap, defaultAppKey, lang)
 
   if (!accessKeyId || !accessKeySecret || !appKey) {
-    return errorResponse('请先配置 ALIYUN_ACCESS_KEY_ID(或 ALIYUN_ACCESSKEY_ID) / ALIYUN_ACCESS_KEY_SECRET(或 ALIYUN_ACCESSKEY_SECRET) / ALIYUN_APP_KEY')
+    return errorResponse('请先配置 ALIYUN_ACCESS_KEY_ID / ALIYUN_ACCESS_KEY_SECRET / ALIYUN_APP_KEY')
   }
 
   try {

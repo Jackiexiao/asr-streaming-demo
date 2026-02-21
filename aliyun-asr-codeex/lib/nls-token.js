@@ -22,8 +22,8 @@ function parseRefreshAheadSeconds(raw) {
 
 function resolveServerConfig(env = process.env) {
   return {
-    accessKeyId: pickEnv(env, ['ALIYUN_ACCESS_KEY_ID', 'ALIYUN_ACCESSKEY_ID']),
-    accessKeySecret: pickEnv(env, ['ALIYUN_ACCESS_KEY_SECRET', 'ALIYUN_ACCESSKEY_SECRET']),
+    accessKeyId: pickEnv(env, ['ALIYUN_ACCESS_KEY_ID']),
+    accessKeySecret: pickEnv(env, ['ALIYUN_ACCESS_KEY_SECRET']),
     defaultAppKey: pickEnv(env, ['ALIYUN_APP_KEY']),
     langMapRaw: pickEnv(env, ['ALIYUN_APP_KEYS_JSON']),
     refreshAheadSeconds: parseRefreshAheadSeconds(pickEnv(env, ['ALIYUN_TOKEN_REFRESH_AHEAD_SECONDS'])),

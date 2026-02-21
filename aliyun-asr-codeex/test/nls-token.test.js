@@ -24,26 +24,27 @@ test('resolveAppKey prefers lang mapping and falls back to default app key', () 
   assert.equal(resolveAppKey(map, 'ALIYUN_DEFAULT', 'jp'), 'ALIYUN_DEFAULT');
 });
 
-test('resolveServerConfig supports both env naming styles', () => {
-  const withUnderscore = resolveServerConfig({
+test('resolveServerConfig reads new env naming only', () => {
+  const config = resolveServerConfig({
     ALIYUN_ACCESS_KEY_ID: 'ak-1',
     ALIYUN_ACCESS_KEY_SECRET: 'sk-1',
     ALIYUN_APP_KEY: 'app-1',
+    ALIYUN_ACCESSKEY_ID: 'legacy-ak',
+    ALIYUN_ACCESSKEY_SECRET: 'legacy-sk',
   });
 
-  assert.equal(withUnderscore.accessKeyId, 'ak-1');
-  assert.equal(withUnderscore.accessKeySecret, 'sk-1');
-  assert.equal(withUnderscore.defaultAppKey, 'app-1');
+  assert.equal(config.accessKeyId, 'ak-1');
+  assert.equal(config.accessKeySecret, 'sk-1');
+  assert.equal(config.defaultAppKey, 'app-1');
 
-  const legacyStyle = resolveServerConfig({
-    ALIYUN_ACCESSKEY_ID: 'ak-2',
-    ALIYUN_ACCESSKEY_SECRET: 'sk-2',
-    ALIYUN_APP_KEY: 'app-2',
+  const legacyOnlyConfig = resolveServerConfig({
+    ALIYUN_ACCESSKEY_ID: 'legacy-ak',
+    ALIYUN_ACCESSKEY_SECRET: 'legacy-sk',
+    ALIYUN_APP_KEY: 'app-1',
   });
 
-  assert.equal(legacyStyle.accessKeyId, 'ak-2');
-  assert.equal(legacyStyle.accessKeySecret, 'sk-2');
-  assert.equal(legacyStyle.defaultAppKey, 'app-2');
+  assert.equal(legacyOnlyConfig.accessKeyId, '');
+  assert.equal(legacyOnlyConfig.accessKeySecret, '');
 });
 
 test('shouldReuseToken refreshes token 2 hours before expire by default', () => {

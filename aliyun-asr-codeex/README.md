@@ -22,7 +22,7 @@ Browser(携带token) --WebSocket--> Aliyun NLS Gateway
 1. 服务端使用阿里云 POP SDK 调 `CreateToken`（不是前端签名）
 2. 服务端内存缓存 Token，并在过期前提前刷新（默认提前 2 小时）
 3. 前端不保存长期 AK/SK，不走音频代理
-4. 兼容两套环境变量命名：`ALIYUN_ACCESS_KEY_ID` 与 `ALIYUN_ACCESSKEY_ID`
+4. 环境变量统一使用新命名：`ALIYUN_ACCESS_KEY_ID` / `ALIYUN_ACCESS_KEY_SECRET`
 
 ## 启动
 
@@ -39,13 +39,8 @@ pnpm dev
 必填：
 
 ```bash
-# 推荐（新命名）
 ALIYUN_ACCESS_KEY_ID=
 ALIYUN_ACCESS_KEY_SECRET=
-
-# 兼容（旧命名，二选一）
-ALIYUN_ACCESSKEY_ID=
-ALIYUN_ACCESSKEY_SECRET=
 
 ALIYUN_APP_KEY=
 ```
