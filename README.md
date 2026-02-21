@@ -152,13 +152,25 @@ pnpm run dev         # http://localhost:3000
 
 ### 阿里云两个示例的区别
 
-- `aliyun/`：阿里云 **NLS（智能语音交互）**，服务端创建 Token，浏览器直连 NLS WebSocket（实时场景优先）
-- `aliyun-bailian/`：阿里云 **百炼 DashScope**，服务端代理 WebSocket（模型与接口体系不同，适合百炼生态）
-- 对 Next.js 开发者（尤其部署到 Vercel/函数平台）通常更推荐 `aliyun/`：它不需要在部署平台上维护 WebSocket 代理服务器。
+目前仓库只保留两个阿里云主示例：
 
-两者都可用于实时语音识别，但属于不同产品线，鉴权与接入方式也不同。
+| 目录 | 产品线 | 实时链路 | 鉴权方式 | 适用场景 |
+|---|---|---|---|---|
+| `aliyun/` | 阿里云 NLS | 浏览器直连 NLS WebSocket | 服务端 CreateToken（AK/SK 仅服务端保存） | NLS 一句话/实时识别 |
+| `aliyun-bailian/` | 阿里云百炼 DashScope | 浏览器 → 你的服务端 WS → DashScope WS | 服务端 `DASHSCOPE_API_KEY` 代理调用 | 百炼模型生态（Realtime + 文件识别） |
 
-部署提示：`aliyun-bailian/` 依赖自定义 Node 服务器（`server.js` + `ws`）做代理，更适合可常驻进程的部署方式；`aliyun/` 只需要常规 Next.js 路由能力。
+补充说明：
+
+- `aliyun-bailian/` 的服务端 WS 代理是可行方案，也能保护 API Key 不暴露到前端。
+- 但代理模式会多一跳网络，通常带来少量额外延迟与服务端转发开销。
+- 对 Next.js 开发者（尤其部署到 Vercel/函数平台）通常更推荐 `aliyun/`：不需要维护自定义 WebSocket 代理服务器，部署复杂度更低。
+- 两者都可用于实时语音识别，但属于不同产品线，鉴权与接入方式不同。
+
+仓库使用建议：
+
+- 做阿里云 NLS：优先 `aliyun/`
+- 做阿里云百炼：使用 `aliyun-bailian/`
+- 旧版 NLS 示例已删除，统一收敛到当前 `aliyun/` 最佳实践版本
 
 ### 各厂商所需环境变量
 
