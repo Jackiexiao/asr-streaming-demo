@@ -75,12 +75,19 @@
 浏览器 WebSocket → 本地 server.js → 火山引擎 WebSocket
 ```
 
+为什么不是浏览器直接拿临时 token 连火山引擎？
+
+- 火山引擎流式接口要求握手时带自定义 header（如 `X-Api-App-Key`、`X-Api-Access-Key`）
+- 浏览器原生 `WebSocket` 不支持自定义握手 header
+- 所以 Web 端一般采用服务端代理转发，避免在前端暴露长期密钥
+
 ### 火山引擎参考文档
 
 火山引擎这套 demo 主要参考下面两篇官方文档：
 
 - [鉴权方法（豆包语音）](https://www.volcengine.com/docs/6561/107789?lang=zh)：说明签名和鉴权参数，`volcengine/server.js` 按这个流程做请求签名。
 - [大模型流式语音识别 API（豆包语音）](https://www.volcengine.com/docs/6561/1354869?lang=zh)：定义 WebSocket 接口和消息协议，`volcengine/lib/volc-protocol.js` 按这个协议封包/解包。
+- [录音文件识别（标准版）](https://www.volcengine.com/docs/6561/1354868?lang=zh)：`volcengine/app/file` 页面支持 URL 模式和“本地上传到 R2/S3 后识别”模式。
 
 > 文档可能迭代，若遇到字段或错误码变动，请以火山引擎官方文档为准。
 
