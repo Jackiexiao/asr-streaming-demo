@@ -1,33 +1,27 @@
 # 阿里云 ASR 实现版本总结（2026-02-21）
 
-## 参考标准
+## 结论（现在只保留两个主示例）
 
-本文对照阿里云官方文档：
+- `aliyun/`：阿里云 NLS（智能语音交互）最佳实践版
+- `aliyun-bailian/`：阿里云百炼（DashScope）示例
 
-- 《移动端应用使用 Token 或 STS 安全访问智能语音交互服务》
-- 核心要点：
-  - 实时/一句话识别：服务端创建 Token，下发客户端，客户端直连阿里云 WS
-  - 录音文件离线识别：使用 STS 临时凭证
+## 两个示例的差异
 
-## 当前仓库中的阿里云相关版本
-
-| 目录 | 产品线 | 能否运行 | 是否符合上述最佳实践 | 结论 |
+| 目录 | 产品线 | 实时链路 | 鉴权方式 | 适用场景 |
 |---|---|---|---|---|
-| `aliyun/` | 阿里云 NLS | 是 | **基本符合**（服务端签发 Token + 客户端直连） | 可用，但不作为首选 |
-| `aliyun-asr-codeex/` | 阿里云 NLS | 是 | **符合**（服务端 SDK CreateToken + Token 复用 + 客户端直连） | ✅ 作为 NLS 主版本 |
-| `aliyun-bailian/` | 阿里云百炼 DashScope | 是 | 不适用（不是 NLS Token/STS 文档场景） | 可保留，但不参与 NLS 最佳实践对比 |
+| `aliyun/` | 阿里云 NLS | 浏览器直连 NLS WebSocket | 服务端 CreateToken（AK/SK 仅服务端保存） | NLS 一句话/实时识别 |
+| `aliyun-bailian/` | 阿里云百炼 DashScope | 浏览器 -> 你的服务端 WS -> DashScope WS | 服务端 `DASHSCOPE_API_KEY` 代理调用 | 百炼模型生态（Realtime + 文件识别） |
 
-## 为什么新增 `aliyun-asr-codeex/`
+## 关于“服务端 WS 代理”的说明
 
-相比 `aliyun/`，`aliyun-asr-codeex/` 增加/明确了：
+`aliyun-bailian/` 的代理方式在技术上是可行的，也能保护 API Key 不暴露到前端；
+但比“客户端直连上游”多一跳网络，通常会带来少量额外延迟与服务端转发开销。
 
-1. 服务端通过阿里云 SDK 调 `CreateToken`（官方推荐路径）
-2. 服务端内存缓存 Token，默认提前 2 小时刷新
-3. 前端仅拿短期 Token，音频不经服务端 WS 代理
-4. AK/SK 环境变量统一使用新命名（`ALIYUN_ACCESS_KEY_ID` / `ALIYUN_ACCESS_KEY_SECRET`）
+对 Next.js 开发者（尤其偏向函数/边缘部署）通常更建议优先 `aliyun/`：
+不需要维护自定义 WebSocket 代理服务器，部署复杂度更低。
 
-## 本次建议
+## 仓库建议
 
-- 如果目标是 **阿里云 NLS 流式识别**：统一迁移到 `aliyun-asr-codeex/`
-- `aliyun/` 作为历史兼容示例保留（不再主推）
-- `aliyun-bailian/` 因为产品线不同，可继续保留用于 DashScope 对比
+- 做阿里云 NLS：优先 `aliyun/`
+- 做阿里云百炼：使用 `aliyun-bailian/`
+- 旧版 NLS 示例已删除（统一收敛到当前 `aliyun/` 最佳实践版）

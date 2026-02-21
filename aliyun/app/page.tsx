@@ -2,47 +2,22 @@
 
 import Script from 'next/script'
 import { useEffect, useRef, useState } from 'react'
+import {
+  createBlobToTextAsr,
+  createRecorderInstance,
+  createRealtimeAsr,
+  openRecorder,
+  startAsr,
+} from '@/lib/client/aliyun-recorder'
+import { LANGUAGE_OPTIONS, RECORDER_SCRIPTS } from '@/lib/client/constants'
+import type { AliyunAsrInstance, RecorderInstance } from '@/lib/client/types'
 import styles from './page.module.css'
-
-type RecorderInstance = {
-  open: (success: () => void, fail: (message: string) => void) => void
-  close?: () => void
-  start: () => void
-  stop: (success: (blob: Blob, duration: number) => void, fail: (message: string) => void) => void
-}
-
-type AliyunAsrInstance = {
-  start: (success: () => void, fail: (message: string) => void) => void
-  stop: (success: (text: string, abortMessage: string) => void, fail: (message: string) => void) => void
-  input: (buffers: Int16Array[], sampleRate: number, offset: number) => void
-  audioToText: (blob: Blob, success: (text: string) => void, fail: (message: string) => void) => void
-}
-
-type RecorderFactory = {
-  (options: Record<string, unknown>): RecorderInstance
-  ASR_Aliyun_Short: (options: Record<string, unknown>) => AliyunAsrInstance
-}
-
-declare global {
-  interface Window {
-    Recorder?: RecorderFactory
-  }
-}
-
-const RECORDER_SCRIPTS = [
-  '/recorder/src/recorder-core.js',
-  '/recorder/src/engine/mp3.js',
-  '/recorder/src/engine/mp3-engine.js',
-  '/recorder/src/extensions/asr.aliyun.short.js',
-]
-
-const MAX_DURATION_MS = 2 * 60 * 1000
 
 export default function Page() {
   const [isRecording, setIsRecording] = useState(false)
   const [scriptLoaded, setScriptLoaded] = useState(0)
   const [status, setStatus] = useState('就绪')
-  const [lang, setLang] = useState('普通话')
+  const [lang, setLang] = useState(LANGUAGE_OPTIONS[0])
   const [liveText, setLiveText] = useState('')
   const [finalText, setFinalText] = useState('')
   const [blobText, setBlobText] = useState('')
@@ -61,70 +36,21 @@ export default function Page() {
     }
   }, [])
 
-  function getRecorderFactory() {
-    const Recorder = window.Recorder
-    if (!Recorder) {
-      throw new Error('Recorder.js 还在加载中，请稍后再试')
-    }
-    return Recorder
-  }
-
   function ensureRecorder() {
     if (recorderRef.current) {
       return recorderRef.current
     }
 
-    const Recorder = getRecorderFactory()
-    const instance = Recorder({
-      type: 'mp3',
-      sampleRate: 16000,
-      bitRate: 16,
-      onProcess: (
-        buffers: Int16Array[],
-        _powerLevel: number,
-        _duration: number,
-        sampleRate: number,
-        newBufferIdx: number
-      ) => {
-        asrRef.current?.input(buffers, sampleRate, newBufferIdx)
-      },
-    })
+    const instance = createRecorderInstance(asrRef)
     recorderRef.current = instance
     return instance
   }
 
   function createAsr() {
-    const Recorder = getRecorderFactory()
-    return Recorder.ASR_Aliyun_Short({
-      tokenApi: '/api/token',
-      apiArgs: { lang },
-      asrProcess: (text: string, nextDuration: number, abortMessage = '') => {
-        setLiveText(text)
-        if (abortMessage) {
-          setStatus(`识别中断: ${abortMessage}`)
-          return false
-        }
-        return nextDuration <= MAX_DURATION_MS
-      },
-      log: (message: string) => console.log(`[aliyun-asr] ${message}`),
-    })
-  }
-
-  function openRecorder(recorder: RecorderInstance) {
-    return new Promise<void>((resolve, reject) => {
-      recorder.open(
-        () => {
-          recorderOpenedRef.current = true
-          resolve()
-        },
-        (message) => reject(new Error(message))
-      )
-    })
-  }
-
-  function startAsr(asr: AliyunAsrInstance) {
-    return new Promise<void>((resolve, reject) => {
-      asr.start(resolve, (message) => reject(new Error(message)))
+    return createRealtimeAsr({
+      lang,
+      onLiveText: setLiveText,
+      onStatus: setStatus,
     })
   }
 
@@ -146,7 +72,9 @@ export default function Page() {
     try {
       const recorder = ensureRecorder()
       if (!recorderOpenedRef.current) {
-        await openRecorder(recorder)
+        await openRecorder(recorder, () => {
+          recorderOpenedRef.current = true
+        })
       }
 
       const asr = createAsr()
@@ -212,12 +140,8 @@ export default function Page() {
     }
 
     try {
-      const Recorder = getRecorderFactory()
       setStatus('正在识别最后一段录音文件...')
-      const asr = Recorder.ASR_Aliyun_Short({
-        tokenApi: '/api/token',
-        apiArgs: { lang },
-      })
+      const asr = createBlobToTextAsr(lang)
       asr.audioToText(
         lastBlobRef.current,
         (text) => {
@@ -245,9 +169,9 @@ export default function Page() {
       ))}
 
       <section className={styles.panel}>
-        <h1>阿里云 NLS 流式语音识别（Recorder.js 方案）</h1>
+        <h1>阿里云 NLS 流式语音识别（最佳实践 Token 方案）</h1>
         <p className={styles.description}>
-          浏览器仅请求 <code>/api/token</code>，拿到短期凭证后直接连阿里云 WebSocket。
+          浏览器仅请求 <code>/api/token</code> 获取短期 Token，音频流不经过本服务端代理。
         </p>
 
         <div className={styles.controls}>
@@ -258,9 +182,11 @@ export default function Page() {
             disabled={isRecording}
             onChange={(event) => setLang(event.target.value)}
           >
-            <option value="普通话">普通话</option>
-            <option value="英语">英语</option>
-            <option value="粤语">粤语</option>
+            {LANGUAGE_OPTIONS.map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
           </select>
         </div>
 

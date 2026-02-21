@@ -16,6 +16,11 @@
 - `DASHSCOPE_API_KEY` 仅在服务端读取（`server.js`）
 - 前端不会拿到 API Key
 
+## 部署注意
+
+该示例依赖自定义 Node 服务器（`server.js`）来做 WebSocket 代理（`/api/realtime-ws`）。
+如果你的部署方式不适合运行常驻 WebSocket 代理进程，建议改用 `aliyun/`（NLS Token 直连方案）。
+
 ## 环境变量
 
 复制并填写：

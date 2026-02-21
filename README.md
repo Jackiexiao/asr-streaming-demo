@@ -12,18 +12,12 @@
 
 ### 流式 ASR 的坑
 
-流式 ASR 比文件识别复杂得多：
+流式 ASR 比文件识别复杂得多，接入比较复杂，直接让 AI 写容易有 bug
 
 1. **需要 WebSocket**：不是一次 HTTP 请求，而是持久连接，边说边传边出结果
 2. **鉴权麻烦**：API Key 不能暴露在前端，需要服务端签名/换取临时凭证，再让客户端直连厂商 WebSocket
 3. **音频格式有要求**：通常需要 PCM 16kHz 16bit，浏览器 `AudioContext` 采集到的 Float32 需要手动转换
 4. **各家协议不统一**：消息格式、事件名、鉴权方式全都不一样，文档写得一言难尽
-
-### 国内厂商文档有多烂？
-
-说真的，阿里云、火山引擎这些厂商的流式 ASR 文档写得相当糟糕——示例代码不完整、关键参数藏在犄角旮旯、错误信息毫无提示。
-
-把文档一股脑丢给 Claude/GPT，大概率还是会出 bug，因为文档本身就有坑。
 
 ### 为什么不用浏览器原生语音识别？
 
@@ -50,8 +44,7 @@
 | 目录 | 厂商 | 鉴权方式 | 状态 |
 |------|------|---------|------|
 | `deepgram/` | [Deepgram](https://console.deepgram.com) | 服务端换临时 key（30s），客户端直连 | ✅ |
-| `aliyun/` | [阿里云 NLS](https://nls-portal.console.aliyun.com) | 服务端手写签名换 NLS Token（24h），客户端直连 | ✅（可用） |
-| `aliyun-asr-codeex/` | [阿里云 NLS](https://nls-portal.console.aliyun.com) | 服务端 SDK CreateToken + Token 复用，客户端直连 | ✅（推荐） |
+| `aliyun/` | [阿里云 NLS](https://nls-portal.console.aliyun.com) | 服务端 SDK CreateToken + Token 复用，客户端直连 | ✅（推荐） |
 | `aliyun-bailian/` | [阿里云百炼](https://dashscope.console.aliyun.com) | 服务端 WebSocket 代理（DashScope Realtime） | ✅（不同产品线） |
 | `volcengine/` | [火山引擎](https://console.volcengine.com/speech) | 服务端代理 WebSocket（双向转发） | ✅ |
 
@@ -98,7 +91,7 @@
 ## 快速开始
 
 ```bash
-cd deepgram          # 或 aliyun / aliyun-asr-codeex / aliyun-bailian / volcengine
+cd deepgram          # 或 aliyun / aliyun-bailian / volcengine
 cp .env.example .env.local
 # 填入对应的 API Key（见下方）
 pnpm install
@@ -112,7 +105,19 @@ pnpm run dev         # http://localhost:3000
 - 实时/一句话识别：推荐 **服务端创建 Token，下发给客户端，客户端直连阿里云 WebSocket**
 - 录音文件离线识别：推荐 **STS 临时凭证**（不是实时流式场景）
 
-本仓库里如果你要做 NLS 实时流式识别，优先使用 `aliyun-asr-codeex/`。
+本仓库里如果你要做 NLS 实时流式识别，优先使用 `aliyun/`。
+
+> 说明：旧版阿里云 NLS 示例已移除，当前 `aliyun/` 为统一维护的最佳实践版本。
+
+### 阿里云两个示例的区别
+
+- `aliyun/`：阿里云 **NLS（智能语音交互）**，服务端创建 Token，浏览器直连 NLS WebSocket（实时场景优先）
+- `aliyun-bailian/`：阿里云 **百炼 DashScope**，服务端代理 WebSocket（模型与接口体系不同，适合百炼生态）
+- 对 Next.js 开发者（尤其部署到 Vercel/函数平台）通常更推荐 `aliyun/`：它不需要在部署平台上维护 WebSocket 代理服务器。
+
+两者都可用于实时语音识别，但属于不同产品线，鉴权与接入方式也不同。
+
+部署提示：`aliyun-bailian/` 依赖自定义 Node 服务器（`server.js` + `ws`）做代理，更适合可常驻进程的部署方式；`aliyun/` 只需要常规 Next.js 路由能力。
 
 ### 各厂商所需环境变量
 

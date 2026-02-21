@@ -1,18 +1,23 @@
-# 阿里云 NLS Web 流式识别 Demo
+# 阿里云 NLS 流式识别（最佳实践 + 可复用版）
 
-这个 demo 已整合 `Recorder.js + ASR_Aliyun_Short` 的可跑通方案，流程为：
+`aliyun/` 按阿里云官方安全实践实现：
 
-1. 前端加载 `public/recorder` 下的 Recorder.js 脚本。
-2. 前端请求 `/api/token` 获取 `appkey + token`。
-3. Recorder.js 直接通过 WebSocket 连接阿里云一句话识别服务。
-4. 页面支持实时识别、停止后的最终结果、以及“最后一段录音文件转文字”。
+- 服务端持有 AK/SK，创建并缓存 Token
+- 客户端只拿短期 Token，直接连阿里云 NLS WebSocket
+- 音频流不经过你的服务端代理
+
+## 为什么 Next.js 开发者更常选这个方案
+
+- 不需要自定义 WebSocket 代理服务器
+- 仅依赖 `/api/token` 路由 + 客户端直连阿里云 NLS
+- 对函数化部署更友好，运维复杂度更低
 
 ## 启动
 
 ```bash
 pnpm install
 cp .env.example .env.local
-pnpm run dev
+pnpm dev
 ```
 
 打开 `http://localhost:3000`。
@@ -21,21 +26,56 @@ pnpm run dev
 
 必填：
 
-```bash
+```env
 ALIYUN_ACCESS_KEY_ID=
 ALIYUN_ACCESS_KEY_SECRET=
 ALIYUN_APP_KEY=
 ```
 
-可选（多语言 AppKey 映射）：
+兼容旧命名（可选）：
 
-```bash
-ALIYUN_APP_KEYS_JSON={"普通话":"xxx","英语":"yyy","粤语":"zzz"}
+```env
+ALIYUN_ACCESSKEY_ID=
+ALIYUN_ACCESSKEY_SECRET=
 ```
 
-当 `ALIYUN_APP_KEYS_JSON` 配置了对应语言时，会优先按 `lang` 取 AppKey；否则回退到 `ALIYUN_APP_KEY`。
+可选：
 
-## 参考来源
+```env
+ALIYUN_APP_KEYS_JSON={"普通话":"xxx","英语":"yyy","粤语":"zzz"}
+ALIYUN_TOKEN_REFRESH_AHEAD_SECONDS=7200
+```
 
-- `https://github.com/Jackiexiao/recoderjs_aliyun_asr_demo`
-- 该仓库内的 `src/extensions/asr.aliyun.short.js` 及 Recorder.js 相关脚本已放入 `public/recorder/`。
+## 可复用代码结构
+
+- 服务端：`lib/server/`
+  - `nls-token.js`：Token 能力与配置解析
+  - `token-handler.js`：可直接复用的 `/api/token` 处理器
+- 前端：`lib/client/`
+  - `types.ts`：类型定义
+  - `constants.ts`：脚本/语言/默认配置
+  - `aliyun-recorder.ts`：录音与 ASR 封装
+- 复用说明：`lib/README.md`
+
+## API 路由（推荐写法）
+
+`app/api/token/route.ts`：
+
+```ts
+const { handleTokenRequest } = require('../../../lib/server/token-handler')
+
+export async function GET(req: Request) {
+  return handleTokenRequest(req)
+}
+
+export async function POST(req: Request) {
+  return handleTokenRequest(req)
+}
+```
+
+## 验证
+
+```bash
+pnpm test
+pnpm build
+```

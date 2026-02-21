@@ -5,23 +5,20 @@ const {
   resolveServerConfig,
   shouldReuseToken,
   wrapTokenResponse,
-} = require('../../../lib/nls-token')
+} = require('./nls-token')
 
-const globalForTokenCache = globalThis as typeof globalThis & {
-  __ALIYUN_NLS_TOKEN_CACHE__?: Map<string, { token: string; expireTime: number }>
-}
-
+const globalForTokenCache = globalThis
 if (!globalForTokenCache.__ALIYUN_NLS_TOKEN_CACHE__) {
   globalForTokenCache.__ALIYUN_NLS_TOKEN_CACHE__ = new Map()
 }
 
-const tokenCache = globalForTokenCache.__ALIYUN_NLS_TOKEN_CACHE__
+const defaultTokenCacheMap = globalForTokenCache.__ALIYUN_NLS_TOKEN_CACHE__
 
-function errorResponse(message: string, status = 400) {
+function errorResponse(message, status = 400) {
   return Response.json({ c: 1, m: message, v: '' }, { status })
 }
 
-async function readLang(req: Request) {
+async function readLangFromRequest(req) {
   const url = new URL(req.url)
   const langFromQuery = url.searchParams.get('lang')
   if (langFromQuery) {
@@ -44,9 +41,17 @@ async function readLang(req: Request) {
   return ''
 }
 
-async function getOrCreateToken(appKey: string, accessKeyId: string, accessKeySecret: string, refreshAheadSeconds: number) {
-  const cached = tokenCache.get(appKey)
-  if (cached && shouldReuseToken(cached.expireTime, Date.now(), refreshAheadSeconds)) {
+async function getOrCreateToken({
+  appKey,
+  accessKeyId,
+  accessKeySecret,
+  refreshAheadSeconds,
+  tokenCacheMap = defaultTokenCacheMap,
+  createTokenFn = createTokenWithSdk,
+  nowMs = Date.now(),
+}) {
+  const cached = tokenCacheMap.get(appKey)
+  if (cached && shouldReuseToken(cached.expireTime, nowMs, refreshAheadSeconds)) {
     return {
       token: cached.token,
       expireTime: cached.expireTime,
@@ -54,8 +59,8 @@ async function getOrCreateToken(appKey: string, accessKeyId: string, accessKeySe
     }
   }
 
-  const created = await createTokenWithSdk({ accessKeyId, accessKeySecret })
-  tokenCache.set(appKey, { token: created.token, expireTime: created.expireTime })
+  const created = await createTokenFn({ accessKeyId, accessKeySecret })
+  tokenCacheMap.set(appKey, { token: created.token, expireTime: created.expireTime })
 
   return {
     token: created.token,
@@ -64,9 +69,9 @@ async function getOrCreateToken(appKey: string, accessKeyId: string, accessKeySe
   }
 }
 
-async function handler(req: Request) {
-  const lang = await readLang(req)
-  const { accessKeyId, accessKeySecret, defaultAppKey, langMapRaw, refreshAheadSeconds } = resolveServerConfig(process.env)
+async function handleTokenRequest(req, env = process.env) {
+  const lang = await readLangFromRequest(req)
+  const { accessKeyId, accessKeySecret, defaultAppKey, langMapRaw, refreshAheadSeconds } = resolveServerConfig(env)
   const langMap = parseLangMap(langMapRaw)
   const appKey = resolveAppKey(langMap, defaultAppKey, lang)
 
@@ -75,12 +80,14 @@ async function handler(req: Request) {
   }
 
   try {
-    const { token, expireTime, source } = await getOrCreateToken(appKey, accessKeyId, accessKeySecret, refreshAheadSeconds)
-    const payload = wrapTokenResponse({
-      appkey: appKey,
-      token,
-      expireTime,
+    const { token, expireTime, source } = await getOrCreateToken({
+      appKey,
+      accessKeyId,
+      accessKeySecret,
+      refreshAheadSeconds,
     })
+
+    const payload = wrapTokenResponse({ appkey: appKey, token, expireTime })
 
     return Response.json({
       ...payload,
@@ -95,10 +102,10 @@ async function handler(req: Request) {
   }
 }
 
-export async function GET(req: Request) {
-  return handler(req)
-}
-
-export async function POST(req: Request) {
-  return handler(req)
+module.exports = {
+  defaultTokenCacheMap,
+  errorResponse,
+  getOrCreateToken,
+  handleTokenRequest,
+  readLangFromRequest,
 }
